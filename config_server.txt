@@ -1,0 +1,4 @@
+server=DESKTOP-A7HUPS9\SQLEXPRESS
+database=Db_Pimpihue
+user=sa
+password=12345678

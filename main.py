@@ -2,58 +2,64 @@ import socket
 import threading
 import pyodbc
 import csv
-import os
 
+# Función para cargar la configuración desde un archivo
+def load_config(filename):
+    config = {}
+    with open(filename, 'r') as file:
+        for line in file:
+            name, value = line.strip().split('=')
+            config[name] = value
+    return config
 
+# Función para copiar datos de DETALLES_LECTURAS a PALET_LISTOS
 def copy_data_from_det_lecturas_to_palet_listos(palet):
-    conn = None
-
     try:
-        # Conectar a la base de datos SQL Server
-        conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE=Db_Pimpihue;UID=sa;PWD=12345678'
+        conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE={database_name};UID={user_name};PWD={psw}'
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
-        # Verificar si el palet ya existe en la tabla PALET_LISTOS
-        cursor.execute("SELECT COUNT(*) FROM PALET_LISTOS WHERE palet = ?", (palet,))
-        if cursor.fetchone()[0] > 0:
-            print(f"El palet {palet} ya existe en la tabla PALET_LISTOS. No se realizará la copia de datos.")
-        else:
-            # Copiar los datos de DETALLES_LECTURAS a PALET_LISTOS
-            cursor.execute('''
-                INSERT INTO PALET_LISTOS (palet, cajas, codigo, estado)
-                SELECT ?, MAX(CAST(n_cajas AS INT)), codigo, 1
-                FROM (SELECT DISTINCT codigo, n_cajas FROM DETALLES_LECTURAS WHERE n_palet = ?) AS unique_codes
-                GROUP BY codigo
-            ''', (palet, palet))
+        # Insertar en PALET_LISTOS los datos desde DETALLES_LECTURAS donde el n_palet coincida
+        cursor.execute('''
+            INSERT INTO PALET_LISTOS (palet, cajas, codigo, estado)
+            SELECT n_palet, n_cajas, codigo, 1
+            FROM DETALLES_LECTURAS
+            WHERE n_palet = ?
+        ''', (palet,))
 
-            # Confirmar la transacción
-            conn.commit()
+        conn.commit()
 
-            # Eliminar los datos de DETALLES_LECTURAS para el palet especificado
-            cursor.execute("DELETE FROM DETALLES_LECTURAS WHERE n_palet = ?", (palet,))
-            conn.commit()
+        # Eliminar los datos copiados de DETALLES_LECTURAS
+        cursor.execute('DELETE FROM DETALLES_LECTURAS WHERE n_palet = ?', (palet,))
+        conn.commit()
 
-            print(f"Datos para el palet {palet} copiados correctamente a la tabla PALET_LISTOS.")
+        print(f"Datos del palet {palet} copiados a PALET_LISTOS y eliminados de DETALLES_LECTURAS.")
 
     except Exception as e:
-        print("Error al copiar los datos:", e)
+        print(f"Error al copiar datos del palet {palet} a PALET_LISTOS:", e)
 
     finally:
-        # Cerrar la conexión solo si está inicializada
-        if conn:
-            conn.close()
+        conn.close()
+
+# Función para probar la conexión a la base de datos
+def test_database_connection(server_name, database_name, user_name, psw):
+    try:
+        conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE={database_name};UID={user_name};PWD={psw}'
+        conn = pyodbc.connect(conn_str)
+        conn.close()
+        print("Conexión a la base de datos exitosa.")
+    except Exception as e:
+        print("Error al conectar a la base de datos:", e)
+        exit(1)  # Salir del programa si la conexión falla
 
 
 # Función para manejar las conexiones en el puerto 8000
 def handle_connection_port_8000():
     try:
         while True:
-            # Aceptar la conexión del cliente
             client_socket, _ = server_socket1.accept()
             print("Conexión entrante en el puerto 8000:", client_socket.getpeername())
 
-            # Recibir el archivo del cliente
             file_data = b''
             while True:
                 chunk = client_socket.recv(4096)
@@ -61,25 +67,22 @@ def handle_connection_port_8000():
                     break
                 file_data += chunk
 
-            # Guardar el archivo recibido
             with open("archivo_recibido.csv", "wb") as file:
                 file.write(file_data)
             print("Archivo CSV recibido y guardado correctamente.")
 
-            # Procesar el archivo CSV y agregar los datos a la base de datos
             with open("archivo_recibido.csv", newline='') as csvfile:
                 csvreader = csv.reader(csvfile)
                 for row in csvreader:
-                    # Conectar a la base de datos SQL Server y realizar la inserción
                     try:
-                        palet = row [0]
-                        conn_str = 'DRIVER=SQL Server;SERVER=' + server_name + ';DATABASE=Db_Pimpihue;UID=sa;PWD=12345678'
+                        palet = row[0]
+                        conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE={database_name};UID={user_name};PWD={psw}'
                         conn = pyodbc.connect(conn_str)
                         cursor = conn.cursor()
-                        cursor.execute('INSERT INTO DETALLES_LECTURAS (n_palet, n_cajas, codigo) VALUES (?, ?, ?)',
+                        cursor.execute('INSERT INTO DETALLES_LECTURAS (n_palet,n_cajas, codigo) VALUES (?, ?, ?)',
                                        (row[0], row[1], row[2]))
                         conn.commit()
-                        print("Datos insertados correctamente en la base de datos del palet. " + palet)
+                        print("Datos insertados correctamente en la base de datos del palet.", palet)
                     except Exception as e:
                         print("Error al insertar datos en la base de datos:", e)
 
@@ -88,76 +91,53 @@ def handle_connection_port_8000():
     except Exception as e:
         print("Error en la conexión del puerto 8000:", e)
 
-
 # Función para manejar las conexiones en el puerto 9000
 def handle_connection_port_9000():
     try:
         while True:
-            # Aceptar la conexión del cliente
             client_socket, _ = server_socket2.accept()
             print("Conexión entrante en el puerto 9000:", client_socket.getpeername())
 
             data = client_socket.recv(1024).decode('utf-8').strip()
-
             if not data:
                 break
 
             message, palet = data.split(',')
 
-            # Conectar a la base de datos SQL Server
-            conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE=Db_Pimpihue;UID=sa;PWD=12345678'
+            conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE={database_name};UID={user_name};PWD={psw}'
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
-
-            # Imprimir mensaje de conexión exitosa
             print("Conexión exitosa con la base de datos SQL Server.")
 
-            # Verificar el valor recibido y tomar acciones correspondientes
-            # Guardar
             if message == '1':
                 print("Se recibió un 1 en el puerto 9000. Realiza un Guardado.")
                 copy_data_from_det_lecturas_to_palet_listos(palet)
 
-            # Eliminar
             elif message == '2':
                 print("Se recibió un 2 en el puerto 9000. Realiza una Eliminacion.")
                 cursor.execute("DELETE FROM DETALLES_LECTURAS WHERE n_palet = ?", (palet,))
                 conn.commit()
-                print(f"Filas con el número de palet {palet} eliminadas correctamente.")
-                cursor.execute("DELETE FROM CABECERA_PALET WHERE N_PALLET = ?", (palet,))
+                cursor.execute("DELETE FROM CABECERA_PALET WHERE n_pallet = ?", (palet,))
                 conn.commit()
-                print(f"Filas con el número de palet {palet} eliminadas de los verificados.")
 
-            # Pendiente
             elif message == '3':
                 print("Se recibió un 3 en el puerto 9000. Realiza un Pendiente.")
-                # Realizar la acción correspondiente al recibir un 3
-
 
             elif message == 'verificar':
-
-                # Realizar una consulta SQL para verificar si el palet existe
-
                 cursor.execute("SELECT COUNT(*) FROM PALET_LISTOS WHERE palet = ?", (palet,))
                 result = cursor.fetchone()[0]
-                cursor.execute("SELECT COUNT(*) FROM CABECERA_PALET WHERE N_PALLET = ?", (palet,))
+                cursor.execute("SELECT COUNT(*) FROM CABECERA_PALET WHERE n_pallet = ?", (palet,))
                 result2 = cursor.fetchone()[0]
-
-                # Si el resultado es mayor que cero, significa que el palet existe
 
                 if result > 0 or result2 > 0:
                     response = "existe"
-
                 else:
                     response = "no_existe"
-                    cursor.execute("INSERT INTO CABECERA_PALET (N_PALLET, ESTADO) VALUES (?, ?)", (palet,"P"))
+                    cursor.execute("INSERT INTO CABECERA_PALET (n_pallet, estado) VALUES (?, ?)", (palet, "P"))
+                    print("El numero de palet {" + palet + "} Ha sido ingresado")
                     conn.commit()
 
-                # Enviar la respuesta al cliente
-
                 client_socket.sendall(response.encode('utf-8'))
-
-                print(f"Respuesta '{response}' enviada al cliente.")
 
             else:
                 print("Valor recibido en el puerto 9000 no reconocido:", message)
@@ -167,12 +147,16 @@ def handle_connection_port_9000():
     except Exception as e:
         print("Error en la conexión del puerto 9000:", e)
 
-# Solicitar al usuario el número de servidor
-server_name = "DESKTOP-7QOMSTL\SQLEXPRESS"
+# Cargar la configuración del servidor desde el archivo config_server.txt
+config = load_config('config_server.txt')
 
-# DESKTOP-7QOMSTL\SQLEXPRESS
-# DESKTOP-MEOAI1O\SQLEXPRESS
+server_name = config['server']
+database_name = config['database']
+user_name = config['user']
+psw = config['password']
 
+# Probar la conexión a la base de datos
+test_database_connection(server_name, database_name, user_name, psw)
 
 # Configuración del primer puerto (8000)
 server_address1 = ('', 8000)
@@ -191,11 +175,4 @@ print("Esperando conexiones entrantes en los puertos 8000 y 9000...")
 # Iniciar hilos para manejar las conexiones en ambos puertos
 threading.Thread(target=handle_connection_port_8000).start()
 threading.Thread(target=handle_connection_port_9000).start()
-
-
-
-
-
-
-
 
