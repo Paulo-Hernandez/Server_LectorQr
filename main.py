@@ -23,17 +23,17 @@ def copy_data_from_det_lecturas_to_palet_listos(palet):
         cursor.execute('''
             INSERT INTO PALET_LISTOS (palet, cajas, codigo, estado)
             SELECT n_palet, n_cajas, codigo, 1
-            FROM DETALLES_LECTURAS
+            FROM DETALLE_LECTURAS
             WHERE n_palet = ?
         ''', (palet,))
 
         conn.commit()
 
         # Eliminar los datos copiados de DETALLES_LECTURAS
-        cursor.execute('DELETE FROM DETALLES_LECTURAS WHERE n_palet = ?', (palet,))
+        cursor.execute('DELETE FROM DETALLE_LECTURAS WHERE n_palet = ?', (palet,))
         conn.commit()
 
-        print(f"Datos del palet {palet} copiados a PALET_LISTOS y eliminados de DETALLES_LECTURAS.")
+        print(f"Datos del palet {palet} copiados a PALET_LISTOS y eliminados de DETALLE_LECTURAS.")
 
     except Exception as e:
         print(f"Error al copiar datos del palet {palet} a PALET_LISTOS:", e)
@@ -79,7 +79,7 @@ def handle_connection_port_8000():
                         conn_str = f'DRIVER=SQL Server;SERVER={server_name};DATABASE={database_name};UID={user_name};PWD={psw}'
                         conn = pyodbc.connect(conn_str)
                         cursor = conn.cursor()
-                        cursor.execute('INSERT INTO DETALLES_LECTURAS (n_palet,n_cajas, codigo) VALUES (?, ?, ?)',
+                        cursor.execute('INSERT INTO DETALLE_LECTURAS (n_palet,n_cajas, codigo) VALUES (?, ?, ?)',
                                        (row[0], row[1], row[2]))
                         conn.commit()
                         print("Datos insertados correctamente en la base de datos del palet.", palet)
@@ -115,9 +115,9 @@ def handle_connection_port_9000():
 
             elif message == '2':
                 print("Se recibió un 2 en el puerto 9000. Realiza una Eliminacion.")
-                cursor.execute("DELETE FROM DETALLES_LECTURAS WHERE n_palet = ?", (palet,))
+                cursor.execute("DELETE FROM DETALLE_LECTURAS WHERE n_palet = ?", (palet,))
                 conn.commit()
-                cursor.execute("DELETE FROM CABECERA_PALET WHERE n_pallet = ?", (palet,))
+                cursor.execute("DELETE FROM CABECERA_PALET WHERE N_PALLET = ?", (palet,))
                 conn.commit()
 
             elif message == '3':
@@ -126,14 +126,14 @@ def handle_connection_port_9000():
             elif message == 'verificar':
                 cursor.execute("SELECT COUNT(*) FROM PALET_LISTOS WHERE palet = ?", (palet,))
                 result = cursor.fetchone()[0]
-                cursor.execute("SELECT COUNT(*) FROM CABECERA_PALET WHERE n_pallet = ?", (palet,))
+                cursor.execute("SELECT COUNT(*) FROM CABECERA_PALET WHERE N_PALLET = ?", (palet,))
                 result2 = cursor.fetchone()[0]
 
                 if result > 0 or result2 > 0:
                     response = "existe"
                 else:
                     response = "no_existe"
-                    cursor.execute("INSERT INTO CABECERA_PALET (n_pallet, estado) VALUES (?, ?)", (palet, "P"))
+                    cursor.execute("INSERT INTO CABECERA_PALET (N_PALLET, ESTADO) VALUES (?, ?)", (palet, "P"))
                     print("El numero de palet {" + palet + "} Ha sido ingresado")
                     conn.commit()
 
